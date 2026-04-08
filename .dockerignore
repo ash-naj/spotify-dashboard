@@ -1,0 +1,7 @@
+venv/
+.venv.nosync/
+Data/
+Graphs/
+.env
+__pycache__/
+.idea/
