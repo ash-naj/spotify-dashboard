@@ -16,8 +16,8 @@ engine = create_engine(db_url)
 
 # visualization for 4__Total_Plays_per_Hour.csv
 def hourly_graph():
-    file_path = 'CSV exports/4__Total_Plays_per_Hour.csv'
-    df = pd.read_csv(file_path)
+    query = "SELECT * FROM clean_listening_history"
+    df = pd.read_sql(query, engine)
 
     # creates 300 x points, between 0 and 23
     x_smooth = np.linspace(df['hour'].min(), df['hour'].max(), 300)
@@ -48,8 +48,14 @@ def hourly_graph():
 
 # visualization for 7__Days_with_Longest_Music_Sessions.csv
 def daily_session_duration():
-    file_path = 'CSV exports/7__Days_with_Longest_Music_Sessions.csv'
-    df = pd.read_csv(file_path)
+    query = """
+            SELECT DATE(timestamp)                   AS date, \
+                   SUM(ms_played) / (1000 * 60 * 60) AS hours_for_plot
+            FROM clean_listening_history
+            GROUP BY DATE(timestamp)
+            ORDER BY date; \
+            """
+    df = pd.read_sql(query, engine)
     df['date'] = pd.to_datetime(df['date'])
     plt.figure(figsize=(14, 6))
     plt.plot(df['date'], df['hours_for_plot'], color='#75FAED', linewidth=2)
@@ -63,7 +69,8 @@ def daily_session_duration():
 
 def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
-    df = pd.read_csv('CSV exports/7__Days_with_Longest_Music_Sessions.csv')
+    query = "SELECT * FROM clean_listening_history"
+    df = pd.read_sql(query, engine)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values(by=['date'])
     # UI
