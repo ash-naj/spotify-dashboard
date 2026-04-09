@@ -64,8 +64,8 @@ ORDER BY total_skips DESC
 );
 SELECT* FROM v_skip_ratio_artist;
 
--- 6. Weighted Artist Skip Ratio
-CREATE OR REPLACE VIEW v_weighted_artist_skip_ratio AS
+-- 6. Weighted Artist Skip percentage
+CREATE OR REPLACE VIEW v_weighted_artist_skip_percentage AS
 (
 SELECT artist,
        COUNT(*) AS total_plays,
@@ -126,3 +126,24 @@ FROM clean_listening_history
 GROUP BY date
 ORDER BY date
 );
+
+-- Data for visualize.py
+CREATE OR REPLACE VIEW v_daily_listening_summary AS
+    SELECT
+        DATE(timestamp) AS date,
+        SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot
+    FROM clean_listening_history
+    GROUP BY
+        DATE(timestamp)
+    ORDER BY
+        date;
+CREATE OR REPLACE VIEW v_top_artists AS
+SELECT
+    artist,
+    SUM(ms_duration) / (1000 * 60 * 60) AS total_hours
+FROM
+    clean_listening_history
+GROUP BY
+    artist
+ORDER BY
+    total_hours DESC;
