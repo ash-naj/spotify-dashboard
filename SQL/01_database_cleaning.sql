@@ -1,3 +1,4 @@
+USE defaultdb;
 CREATE OR REPLACE VIEW clean_listening_history AS
 SELECT
     id,
