@@ -8,22 +8,10 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from dotenv import load_dotenv
 import os
-import ssl
 
-# gets the credentials from .env to connect to SQL server
 load_dotenv()
 db_url = os.getenv("AIVEN_DB_URL")
-
-# security bypass
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
-engine = create_engine(
-    db_url,
-    connect_args={
-        "ssl": ssl_context
-    }
-)
+engine = create_engine(db_url)
 
 # visualization for 4__Total_Plays_per_Hour.csv
 def hourly_graph():
