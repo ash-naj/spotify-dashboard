@@ -11,7 +11,7 @@ import os
 
 load_dotenv()
 db_url = os.getenv("AIVEN_DB_URL")
-engine = create_engine(db_url)
+engine = create_engine(db_url, connect_args={"ssl": {"ssl_disabled": True}})
 
 # visualization for 4__Total_Plays_per_Hour.csv
 def hourly_graph():
