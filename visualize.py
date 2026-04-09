@@ -164,7 +164,7 @@ def daily_session_duration_streamlit():
                                   "<b>Smoothed Trend:</b> %{y:.2f}<extra></extra>"
                 )
             # adds the slider
-            # fig1.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
+            fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
             st.plotly_chart(fig1, use_container_width=True)
     with tab2:
         st.write("### All-Time Top 5 Artists")
