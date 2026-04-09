@@ -136,7 +136,7 @@ def daily_session_duration_streamlit():
                 df_timeline['plot_value'] = df_timeline['hours_for_plot']
                 chart_title = f'Raw Data, Daily Listening Timeline ({time_filter})'
             else:
-                df_timeline['plot_value'] = df_timeline['hours_for_plot'].rolling(window=smoothness).mean()
+                df_timeline['plot_value'] = df_timeline['hours_for_plot'].rolling(window=smoothness, min_periods=1).mean()
                 chart_title = f'{smoothness}-Day Average, Daily Listening Timeline ({time_filter})'
             fig1 = px.line(df_timeline, x='date', y='plot_value', title=chart_title, custom_data=['hours_for_plot'])
             # adds vertical time grids
@@ -164,7 +164,7 @@ def daily_session_duration_streamlit():
                                   "<b>Smoothed Trend:</b> %{y:.2f}<extra></extra>"
                 )
             # adds the slider
-            fig1.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
+            # fig1.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
             st.plotly_chart(fig1, use_container_width=True)
     with tab2:
         st.write("### All-Time Top 5 Artists")
