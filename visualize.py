@@ -27,7 +27,7 @@ engine = create_engine(
 
 # getting the data only one time, not in every function
 @st.cache_data
-def fetch_timeline_data(query):
+def fetch_data(query):
     return pd.read_sql(query, engine)
 
 # visualization for 4__Total_Plays_per_Hour.csv
@@ -165,11 +165,11 @@ def daily_session_duration_streamlit():
                 )
             # adds the slider
             fig1.update_layout(xaxis=dict(rangeslider=dict(visible=True)))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig1, use_container_width=True)
     with tab2:
         st.write("### All-Time Top 5 Artists")
         # get the data from the created Table
-        top_artists_query = "SELECT* FROM v_top_artists LIMIT 5;"
+        top_artists_query = "SELECT * FROM v_top_artists LIMIT 5;"
         df_artists = fetch_data(top_artists_query)
         # creating a bar chart
         fig2 = px.bar(
