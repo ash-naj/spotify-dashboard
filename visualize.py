@@ -60,7 +60,7 @@ def hourly_graph():
 def daily_session_duration():
     query = """
             SELECT DATE(timestamp)                   AS date, \
-                   SUM(ms_played) / (1000 * 60 * 60) AS hours_for_plot
+                   SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot
             FROM clean_listening_history
             GROUP BY DATE(timestamp)
             ORDER BY date; \
@@ -81,7 +81,7 @@ def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
     query = """
             SELECT DATE(timestamp)                   AS date,
-                   SUM(ms_played) / (1000 * 60 * 60) AS hours_for_plot
+                   SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot
             FROM clean_listening_history
             GROUP BY DATE(timestamp)
             ORDER BY date; \
