@@ -1,3 +1,4 @@
+USE defaultdb;
 -- 1. Top Tracks
 CREATE OR REPLACE VIEW v_top_played_track AS
 (
@@ -63,7 +64,26 @@ ORDER BY total_skips DESC
 );
 SELECT* FROM v_skip_ratio_artist;
 
--- 6. Total Plays per Hour
+-- 6. Weighted Artist Skip Ratio
+CREATE OR REPLACE VIEW v_weighted_artist_skip_ratio AS
+(
+SELECT artist,
+       COUNT(*) AS total_plays,
+       SUM(true_skip) AS total_skips,
+       -- I'm using LOG to normalize the play count, to avoid having artists with high play counts at the top of the list.
+       -- Albeit, LOG has no natural ceiling, so to get a clean percentage we use the (Max total play(most played artist)) in the dataset as the divisor.
+       -- +1 guards against LOG(0). OVER() applies MAX across all artists globally
+       -- result is a 0–100 score: higher = listened to often AND rarely skipped
+       ROUND(
+               (1 - SUM(true_skip) / COUNT(*)) * LOG(COUNT(*) + 1) / LOG(MAX(COUNT(*)) OVER () + 1) *100 , 2
+       ) AS weighted_skip_percentage
+FROM clean_listening_history
+GROUP BY artist
+HAVING total_plays > 20
+ORDER BY weighted_skip_percentage DESC
+    );
+
+-- 7. Total Plays per Hour
 CREATE OR REPLACE VIEW v_hourly_plays AS
 (
 SELECT HOUR(timestamp) AS hour, COUNT(*) AS played_count
@@ -73,7 +93,7 @@ GROUP BY HOUR(timestamp)
 ORDER BY HOUR(timestamp)
 );
 
--- 7. Top Track by Hour
+-- 8. Top Track by Hour
 CREATE OR REPLACE VIEW v_hourly_top_track AS
 (
 WITH HourlyCounts AS (SELECT HOUR(timestamp) as local_hour,
@@ -93,7 +113,7 @@ WHERE ranking = 1
 ORDER BY local_hour
 );
 
--- 8. Days with Longest Music Sessions
+-- 9. Days with Longest Music Sessions
 CREATE OR REPLACE VIEW v_daily_session_duration AS
 (
 SELECT DATE(timestamp)                   as date,
