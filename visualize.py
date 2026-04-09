@@ -69,7 +69,13 @@ def daily_session_duration():
 
 def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
-    query = "SELECT * FROM clean_listening_history"
+    query = """
+            SELECT DATE(timestamp)                   AS date,
+                   SUM(ms_played) / (1000 * 60 * 60) AS hours_for_plot
+            FROM clean_listening_history
+            GROUP BY DATE(timestamp)
+            ORDER BY date; \
+            """
     df = pd.read_sql(query, engine)
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values(by=['date'])
