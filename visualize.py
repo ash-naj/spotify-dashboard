@@ -130,11 +130,78 @@ def daily_session_duration():
     plt.savefig('Graphs/7__Days_with_Longest_Music_Sessions.png', dpi=600)
     plt.show()
 
+# helper function for creating a barchart and top 5
+def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="Purp", is_track=True, chart_type="bar",
+                       absolute_max=None, extra_cols=None):
+    """A universal UI component to draw a Top 5 image and data visualization."""
+
+    # create the place for top 5 images
+    top_5_df = df.head(5)
+    cols = st.columns(5)
+
+    for index, row in top_5_df.iterrows():
+        # the process of getting an artist's image is different to an album cover one.
+        if is_track:
+            primary_name = row['track']
+            artist_name = row['artist']
+            image_url = get_track_image(primary_name, artist_name)
+            subtitle = f"<br><span style='font-size: 12px; color: gray;'>{artist_name}</span>"
+        else:
+            primary_name = row['artist']
+            image_url = get_artist_image(primary_name)
+            subtitle = ""
+
+        with cols[index]:
+            st.image(image_url, use_container_width=True)
+            st.markdown(
+                f"<p style='text-align: center; font-size: 16px;'><b>#{index + 1}</b><br>{primary_name}{subtitle}</p>",
+                unsafe_allow_html=True
+            )
+
+    st.divider()
+
+    # we create an absolute_max variable for our Table
+    # if it's not provided then we set it to 100.
+    chart_max = absolute_max if absolute_max is not None else df[metric_col].max()
+
+    # creating the data visualization
+    if chart_type == "table":
+        display_columns = [name_col]
+        if extra_cols:
+            display_columns.extend(extra_cols)
+        display_columns.append(metric_col)
+
+        st.dataframe(
+            df[display_columns],
+            column_config={
+                name_col: st.column_config.TextColumn("Track Name"),
+                metric_col: st.column_config.ProgressColumn(
+                    chart_title,
+                    format="%.2f",
+                    min_value=0,
+                    max_value=chart_max,
+                )
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        fig = px.bar(
+            df, x=metric_col, y=name_col, orientation='h',
+            title=chart_title, color=metric_col, color_continuous_scale=color_theme,
+            text_auto='.2f'
+        )
+        fig.update_layout(
+            yaxis={'categoryorder': 'total ascending'},
+            xaxis_range=[0, chart_max]  # Ensures the bar chart also respects the absolute max!
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
 def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
 
     # creating different tabs
-    tab1, tab2, tab3 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists", "🎶 Top Tracks"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists", "🎶 Top Tracks", "🎧 Retained Tracks"])
     # tab1 : listening history graph
     with tab1:
         # Creating two columns for our controls
@@ -231,66 +298,52 @@ def daily_session_duration_streamlit():
     # tab2 : top 5 artists
     with tab2:
         st.write("### All-Time Top 5 Artists")
-        # get the data from the created Table
-        top_artists_query = "SELECT * FROM v_top_artists LIMIT 5;"
-        df_artists = fetch_data(top_artists_query)
-        # columns for artist picture
-        cols = st.columns(5)
-        # goes through the 5 artist and gets their images
-        for index, row in df_artists.iterrows():
-            image_url = get_artist_image(row['artist'])
-            with cols[index]:
-                st.image(image_url, use_container_width=True)
-                # Adds the artist name in bold below their picture
-                st.markdown(
-                    f"<p style='text-align: center; font-size: 18px;'><b>#{index + 1}</b><br>{row['artist']}</p>",
-                    unsafe_allow_html=True)
-        # creating a bar chart
-        fig2 = px.bar(
-            df_artists,
-            x='total_hours',
-            y='artist',
-            orientation='h',
-            title="Most Listened To Artists",
-            color='total_hours',
-            color_continuous_scale="Purp"
+        df_artists = fetch_data("SELECT * FROM v_top_artists LIMIT 5;")
+
+        render_leaderboard(
+            df=df_artists,
+            name_col='artist',
+            metric_col='total_hours',
+            chart_title="Most Listened To Artists (Hours)",
+            color_theme="Purp",
+            is_track=False # tells the helper function that we need artist images
         )
-        # reversing the Y-axis
-        fig2.update_layout(yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig2, use_container_width=True)
     with tab3:
         st.write("### All-Time Top 5 Tracks")
-        top_tracks_query = "SELECT * FROM v_top_tracks LIMIT 5;"
-        df_tracks = fetch_data(top_tracks_query)
-        # getting track pictures
-        cols_tracks = st.columns(5)
-        for index, row in df_tracks.iterrows():
-            track_name = row['track']
-            artist_name = row['artist']
-            image_url = get_track_image(track_name, artist_name)
+        df_tracks = fetch_data("SELECT * FROM v_top_tracks LIMIT 5;")
 
-            with cols_tracks[index]:
-                st.image(image_url, use_container_width=True)
-                # Adds Rank, Track Name (bold), and Artist Name (smaller and gray)
-                st.markdown(
-                    f"<p style='text-align: center; font-size: 16px;'><b>#{index + 1}</b><br>{track_name}<br><span style='font-size: 12px; color: gray;'>{artist_name}</span></p>",
-                    unsafe_allow_html=True
-                )
-
-        st.divider()
-        # creating a bar chart
-        fig3 = px.bar(
-            df_tracks,
-            x='total_hours',
-            y='track',
-            orientation='h',
-            title="Most Listened To Tracks",
-            color='total_hours',
-            color_continuous_scale="Purp"
+        render_leaderboard(
+            df=df_tracks,
+            name_col='track',
+            metric_col='total_hours',
+            chart_title="Most Listened To Tracks (Hours)",
+            color_theme="Purp",
+            is_track=True
         )
-        # reversing the Y-axis
-        fig3.update_layout(yaxis={'categoryorder': 'total ascending'})
-        st.plotly_chart(fig3, use_container_width=True)
+    with tab4:
+        st.write("### All-Time Top 10 Retained Tracks")
+        # explanation for Retained Tracks
+        with st.expander("🤓 How is this calculated? (The Math)"):
+            st.write("""
+            I'm using LOG to normalize the play count, to avoid having artists with high play counts at the top of the list.
+            \nAlbeit, LOG has no natural ceiling, so to get a clean percentage we use the (Max total play(most played artist)) in the dataset as the divisor.
+            \nresult is a 0–100 score: higher = listened to often AND rarely skipped
+            """)
+
+        df_retained = fetch_data("SELECT * FROM v_weighted_track_skip_percentage LIMIT 10;")
+
+        render_leaderboard(
+            df=df_retained,
+            name_col='track',
+            metric_col='weighted_skip_percentage',
+            chart_title="Retention Score",
+            color_theme="Teal",
+            is_track=True,
+            chart_type="table", # changes from bar chart to table
+            absolute_max=100,
+            extra_cols=['total_plays', 'total_skips']
+        )
+        st.divider()
 # run this file in terminal
 if __name__ == "__main__":
     daily_session_duration_streamlit()
