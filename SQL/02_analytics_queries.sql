@@ -62,7 +62,6 @@ GROUP BY artist
 HAVING total_plays > 20
 ORDER BY total_skips DESC
 );
-SELECT* FROM v_skip_ratio_artist;
 
 -- 6. Weighted Artist Skip percentage
 CREATE OR REPLACE VIEW v_weighted_artist_skip_percentage AS
@@ -127,6 +126,50 @@ GROUP BY date
 ORDER BY date
 );
 
+-- 10. Most played artist each month
+CREATE OR REPLACE VIEW v_monthly_top_artist AS
+(
+WITH monthlycount AS (SELECT YEAR(timestamp) AS year,
+                            MONTH(timestamp) as month,
+                             artist,
+                             COUNT(*)        AS total_plays
+                      FROM clean_listening_history
+                      WHERE true_skip = 0
+                      GROUP BY year, month, artist),
+     RankedArtists AS (SELECT year,
+                           month,
+                             artist,
+                             total_plays,
+                             ROW_NUMBER() OVER (PARTITION BY year, month ORDER BY total_plays DESC) AS ranking
+                      FROM monthlycount)
+SELECT year, month, artist AS top_artist
+FROM RankedArtists
+WHERE ranking = 1
+ORDER BY year, month
+);
+
+-- 10. Most played track each month
+CREATE OR REPLACE VIEW v_monthly_top_track AS
+(
+WITH monthlycount AS (SELECT YEAR(timestamp) AS year,
+                             MONTH(timestamp) as month,
+                             track,
+                             COUNT(*)        AS total_plays
+                      FROM clean_listening_history
+                      WHERE true_skip = 0
+                      GROUP BY year, month, track),
+     rankedtrack AS (SELECT year,
+                              month,
+                              track,
+                              total_plays,
+                              ROW_NUMBER() OVER (PARTITION BY year, month ORDER BY total_plays DESC) AS ranking
+                       FROM monthlycount)
+SELECT year, month, track AS top_track
+FROM rankedtrack
+WHERE ranking = 1
+ORDER BY year, month
+);
+
 -- Data for visualize.py
 CREATE OR REPLACE VIEW v_daily_listening_summary AS
     SELECT
@@ -143,6 +186,7 @@ SELECT
     SUM(ms_duration) / (1000 * 60 * 60) AS total_hours
 FROM
     clean_listening_history
+WHERE true_skip = 0
 GROUP BY
     artist
 ORDER BY
