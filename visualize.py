@@ -55,6 +55,28 @@ def get_artist_image(artist_name):
         pass
     return "https://img.freepik.com/premium-vector/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-vector-illustration_561158-3485.jpg?w=360" # A default profile icon if there's no image
 
+@st.cache_data
+def get_track_image(track_name, artist_name):
+    try:
+        # Search for BOTH the track and artist to ensure we get the right song
+        query = f"track:{track_name} artist:{artist_name}"
+        result = spotify.search(q=query, type='track', limit=1)
+
+        # Dig into the package to find the album cover images
+        images = result['tracks']['items'][0]['album']['images']
+
+        if images:
+            # The exact same quality check we used for artists!
+            if len(images) > 1:
+                return images[1]['url']  # Grab the medium resolution
+            else:
+                return images[0]['url']
+
+    except Exception as e:
+        pass
+
+    return "https://via.placeholder.com/300?text=No+Cover"
+
 # visualization for 4__Total_Plays_per_Hour.csv
 def hourly_graph():
     query = "SELECT * FROM clean_listening_history"
@@ -112,7 +134,8 @@ def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
 
     # creating different tabs
-    tab1, tab2 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists"])
+    tab1, tab2, tab3 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists", "🎶 Top Tracks"])
+    # tab1 : listening history graph
     with tab1:
         # Creating two columns for our controls
         col1, col2 = st.columns(2)
@@ -205,6 +228,7 @@ def daily_session_duration_streamlit():
         # adds the slider
         fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
         st.plotly_chart(fig1, use_container_width=True)
+    # tab2 : top 5 artists
     with tab2:
         st.write("### All-Time Top 5 Artists")
         # get the data from the created Table
@@ -234,7 +258,39 @@ def daily_session_duration_streamlit():
         # reversing the Y-axis
         fig2.update_layout(yaxis={'categoryorder': 'total ascending'})
         st.plotly_chart(fig2, use_container_width=True)
+    with tab3:
+        st.write("### All-Time Top 5 Tracks")
+        top_tracks_query = "SELECT * FROM v_top_tracks LIMIT 5;"
+        df_tracks = fetch_data(top_tracks_query)
+        # getting track pictures
+        cols_tracks = st.columns(5)
+        for index, row in df_tracks.iterrows():
+            track_name = row['track']
+            artist_name = row['artist']
+            image_url = get_track_image(track_name, artist_name)
 
+            with cols_tracks[index]:
+                st.image(image_url, use_container_width=True)
+                # Adds Rank, Track Name (bold), and Artist Name (smaller and gray)
+                st.markdown(
+                    f"<p style='text-align: center; font-size: 16px;'><b>#{index + 1}</b><br>{track_name}<br><span style='font-size: 12px; color: gray;'>{artist_name}</span></p>",
+                    unsafe_allow_html=True
+                )
+
+        st.divider()
+        # creating a bar chart
+        fig3 = px.bar(
+            df_tracks,
+            x='total_hours',
+            y='track',
+            orientation='h',
+            title="Most Listened To Tracks",
+            color='total_hours',
+            color_continuous_scale="Purp"
+        )
+        # reversing the Y-axis
+        fig3.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig3, use_container_width=True)
 # run this file in terminal
 if __name__ == "__main__":
     daily_session_duration_streamlit()
