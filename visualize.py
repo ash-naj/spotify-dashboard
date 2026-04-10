@@ -131,7 +131,7 @@ def daily_session_duration():
     plt.show()
 
 # helper function for creating a barchart and top 5
-def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="Purp", is_track=True, chart_type="bar",
+def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae", is_track=True, chart_type="bar",
                        absolute_max=None, extra_cols=None):
     """A universal UI component to draw a Top 5 image and data visualization."""
 
@@ -189,11 +189,14 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="Purp"
         fig = px.bar(
             df, x=metric_col, y=name_col, orientation='h',
             title=chart_title, color=metric_col, color_continuous_scale=color_theme,
-            text_auto='.2f'
+            text_auto='.2f',
+            range_color=[0, chart_max]
         )
         fig.update_layout(
             yaxis={'categoryorder': 'total ascending'},
-            xaxis_range=[0, chart_max]  # Ensures the bar chart also respects the absolute max!
+            xaxis_range=[0, chart_max],  # adds the absolute max ceiling
+            # adds a padding to text
+            margin=dict(l=20, r=20, t=50, b=20)
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -273,11 +276,6 @@ def daily_session_duration_streamlit():
             showgrid=True,
             gridwidth=1,
             gridcolor='rgba(255, 255, 255, 0.1)',  # creates a faint white line for every x months
-            # the number indicates the distance between ticks
-            dtick="M3",
-
-            # Format the text at the bottom to say "Jan 2024" instead of raw dates
-            tickformat="%b %Y"
         )
         # it changes the data that it will be shown when the mouse is hovering on the graph
         if smoothness == 1:
@@ -305,7 +303,7 @@ def daily_session_duration_streamlit():
             name_col='artist',
             metric_col='total_hours',
             chart_title="Most Listened To Artists (Hours)",
-            color_theme="Purp",
+            color_theme="algae",
             is_track=False # tells the helper function that we need artist images
         )
     with tab3:
@@ -317,7 +315,7 @@ def daily_session_duration_streamlit():
             name_col='track',
             metric_col='total_hours',
             chart_title="Most Listened To Tracks (Hours)",
-            color_theme="Purp",
+            color_theme="algae",
             is_track=True
         )
     with tab4:
