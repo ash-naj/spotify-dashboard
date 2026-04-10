@@ -9,10 +9,17 @@ from sqlalchemy import text
 from dotenv import load_dotenv
 import os
 import ssl
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 
 # connecting to AIVEN
 load_dotenv()
 db_url = os.getenv("AIVEN_DB_URL")
+# spotify API connection
+spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
+    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+))
 
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
@@ -29,6 +36,24 @@ engine = create_engine(
 @st.cache_data
 def fetch_data(query):
     return pd.read_sql(query, engine)
+
+@st.cache_data
+def get_artist_image(artist_name):
+    try:
+        # Search Spotify for the artist
+        result = spotify.search(q='artist:' + artist_name, type='artist', limit=1)
+        # Dig into the data package to find the images
+        images = result['artists']['items'][0]['images']
+        if images:
+            # If Spotify gives us at least 2 image choices, grab the Medium one [1]
+            if len(images) > 1:
+                return images[1]['url']
+            # If they only have 1 image on file, just use whatever they gave us
+            else:
+                return images[0]['url']
+    except Exception as e:
+        pass
+    return "https://img.freepik.com/premium-vector/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-vector-illustration_561158-3485.jpg?w=360" # A default profile icon if there's no image
 
 # visualization for 4__Total_Plays_per_Hour.csv
 def hourly_graph():
@@ -121,64 +146,81 @@ def daily_session_duration_streamlit():
                     st.warning("⚠️ Jarvis won't allow you")
                     return
 
-            df_timeline = fetch_data(query)
-            df_timeline['date'] = pd.to_datetime(df_timeline['date'])
-            # UI
-            st.divider()
-            st.write("### Graph Smoothing")
-            # smoother slide dynamically changes based on the selected time window
-            if time_filter in ["Last Month", "Last 2 Months"]:
-                max_slider_val = 7
-                slider_label = "1 = Raw Data, 7 = Weekly Trend"
-            else:
-                max_slider_val = 30
-                slider_label = "1 = Raw Data, 30 = Monthly Trend"
+        df_timeline = fetch_data(query)
+        df_timeline['date'] = pd.to_datetime(df_timeline['date'])
+        # UI
+        st.divider()
+        st.write("### Graph Smoothing")
+        # smoother slide dynamically changes based on the selected time window
+        if time_filter in ["Last Month", "Last 2 Months"]:
+            max_slider_val = 7
+            slider_label = "1 = Raw Data, 7 = Weekly Trend"
+        else:
+            max_slider_val = 30
+            slider_label = "1 = Raw Data, 30 = Monthly Trend"
 
-            smoothness = st.slider(
-                slider_label,
-                min_value=1,
-                max_value=max_slider_val,
-                value=1
-            )
-            if smoothness == 1:
-                df_timeline['plot_value'] = df_timeline['hours_for_plot']
-                chart_title = f'Raw Data, Daily Listening Timeline ({time_filter})'
-            else:
-                df_timeline['plot_value'] = df_timeline['hours_for_plot'].rolling(window=smoothness, min_periods=1).mean()
-                chart_title = f'{smoothness}-Day Average, Daily Listening Timeline ({time_filter})'
-            fig1 = px.line(df_timeline, x='date', y='plot_value', title=chart_title, custom_data=['hours_for_plot'])
-            # adds vertical time grids
-            fig1.update_xaxes(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor='rgba(255, 255, 255, 0.1)',  # creates a faint white line for every x months
-                # the number indicates the distance between ticks
-                dtick="M3",
+        smoothness = st.slider(
+            slider_label,
+            min_value=1,
+            max_value=max_slider_val,
+            value=1
+        )
+        if smoothness == 1:
+            df_timeline['plot_value'] = df_timeline['hours_for_plot']
+            chart_title = f'Raw Data, Daily Listening Timeline ({time_filter})'
+        else:
+            df_timeline['plot_value'] = df_timeline['hours_for_plot'].rolling(window=smoothness, min_periods=1).mean()
+            chart_title = f'{smoothness}-Day Average, Daily Listening Timeline ({time_filter})'
+        fig1 = px.line(df_timeline,
+                       x='date',
+                       y='plot_value',
+                       title=chart_title,
+                       custom_data=['hours_for_plot'],
+                       color_discrete_sequence=['#1DB954'])
+        fig1.update_layout(yaxis_title="Hours Listened")
+        # adds vertical time grids
+        fig1.update_xaxes(
+            showgrid=True,
+            gridwidth=1,
+            gridcolor='rgba(255, 255, 255, 0.1)',  # creates a faint white line for every x months
+            # the number indicates the distance between ticks
+            dtick="M3",
 
-                # Format the text at the bottom to say "Jan 2024" instead of raw dates
-                tickformat="%b %Y"
+            # Format the text at the bottom to say "Jan 2024" instead of raw dates
+            tickformat="%b %Y"
+        )
+        # it changes the data that it will be shown when the mouse is hovering on the graph
+        if smoothness == 1:
+            fig1.update_traces(
+                # got no idea how this works, used AI
+                hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
+                              "<b>Hours Listened:</b> %{customdata[0]:.2f}<br>"
             )
-            # it changes the data that it will be shown when the mouse is hovering on the graph
-            if smoothness == 1:
-                fig1.update_traces(
-                    # got no idea how this works, used AI
-                    hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
-                                  "<b>Hours Listened:</b> %{customdata[0]:.2f}<br>"
-                )
-            else :
-                fig1.update_traces(
-                    hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
-                                  "<b>Actual Hours Listened:</b> %{customdata[0]:.2f}<br>" +
-                                  "<b>Smoothed Trend:</b> %{y:.2f}<extra></extra>"
-                )
-            # adds the slider
-            fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
-            st.plotly_chart(fig1, use_container_width=True)
+        else :
+            fig1.update_traces(
+                hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
+                              "<b>Actual Hours Listened:</b> %{customdata[0]:.2f}<br>" +
+                              "<b>Smoothed Trend:</b> %{y:.2f}<extra></extra>"
+            )
+        # adds the slider
+        fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
+        st.plotly_chart(fig1, use_container_width=True)
     with tab2:
         st.write("### All-Time Top 5 Artists")
         # get the data from the created Table
         top_artists_query = "SELECT * FROM v_top_artists LIMIT 5;"
         df_artists = fetch_data(top_artists_query)
+        # columns for artist picture
+        cols = st.columns(5)
+        # goes through the 5 artist and gets their images
+        for index, row in df_artists.iterrows():
+            image_url = get_artist_image(row['artist'])
+            with cols[index]:
+                st.image(image_url, use_container_width=True)
+                # Adds the artist name in bold below their picture
+                st.markdown(
+                    f"<p style='text-align: center; font-size: 18px;'><b>#{index + 1}</b><br>{row['artist']}</p>",
+                    unsafe_allow_html=True)
         # creating a bar chart
         fig2 = px.bar(
             df_artists,
