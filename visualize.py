@@ -126,11 +126,19 @@ def daily_session_duration_streamlit():
             # UI
             st.divider()
             st.write("### Graph Smoothing")
-            smoothness = st.slider (
-                "Slider : 1 --> Raw Data, 30 --> Monthly Trend ",
-                min_value = 1,
-                max_value = 30,
-                value = 1
+            # smoother slide dynamically changes based on the selected time window
+            if time_filter in ["Last Month", "Last 2 Months"]:
+                max_slider_val = 7
+                slider_label = "1 = Raw Data, 7 = Weekly Trend"
+            else:
+                max_slider_val = 30
+                slider_label = "1 = Raw Data, 30 = Monthly Trend"
+
+            smoothness = st.slider(
+                slider_label,
+                min_value=1,
+                max_value=max_slider_val,
+                value=1
             )
             if smoothness == 1:
                 df_timeline['plot_value'] = df_timeline['hours_for_plot']
