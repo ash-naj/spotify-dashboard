@@ -185,7 +185,7 @@ def daily_session_duration_streamlit():
             x='total_hours',
             y='artist',
             orientation='h',
-            title="Most Listened To Artists (Hours)",
+            title="Most Listened To Artists",
             color='total_hours',
             color_continuous_scale="Purp"
         )
