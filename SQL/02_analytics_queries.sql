@@ -136,21 +136,6 @@ FROM RankedTracks
 WHERE ranking = 1
 ORDER BY local_hour
 );
-SELECT* FROM v_hourly_top_track;
-
--- 10. Days with Longest Music Sessions
-CREATE OR REPLACE VIEW v_daily_session_duration AS
-(
-SELECT DATE(timestamp)                   as date,
-       ROUND(SUM(plot_duration) / 60, 2) AS hours_for_plot,
-       CONCAT(
-               FLOOR(SUM(plot_duration) / 60), ' hours & ',
-               FLOOR(SUM(plot_duration) % 60), ' minutes'
-       )                                 AS duration_of_session
-FROM clean_listening_history
-GROUP BY date
-ORDER BY date
-);
 
 -- 11. Most played artist each month
 CREATE OR REPLACE VIEW v_monthly_top_artist AS
@@ -197,13 +182,16 @@ FROM rankedtrack
 WHERE ranking = 1
 ORDER BY year, month
 );
-SELECT* FROM v_monthly_top_track;
 
 -- 13. Data for Listening timeline Graph
 CREATE OR REPLACE VIEW v_daily_listening_summary AS
     SELECT
         DATE(timestamp) AS date,
-        SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot
+        SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot,
+        CONCAT(
+                   FLOOR(SUM(plot_duration) / 60), ' hours & ',
+                   FLOOR(SUM(plot_duration) % 60), ' minutes'
+           )                                 AS duration_of_session
     FROM clean_listening_history
     GROUP BY
         DATE(timestamp)

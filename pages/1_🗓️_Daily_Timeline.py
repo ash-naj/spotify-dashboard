@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(layout="wide")
-# Creating two columns for our controls
+# Date selection UI
 time_filter, is_authorized = get_time_filter_ui("tab1")
 if is_authorized:
     if time_filter == "Last Month":
@@ -21,56 +21,52 @@ if is_authorized:
     else:
         query = "SELECT * FROM v_daily_listening_summary;"
     df_timeline = fetch_data(query)
-    df_timeline['date'] = pd.to_datetime(df_timeline['date'])
-    # UI
-    st.divider()
-    st.write("### Graph Smoothing")
-    # smoother slide dynamically changes based on the selected time window
-    if time_filter in ["Last Month", "Last 2 Months"]:
-        max_slider_val = 7
-        slider_label = "1 = Raw Data, 7 = Weekly Trend"
-    else:
-        max_slider_val = 30
-        slider_label = "1 = Raw Data, 30 = Monthly Trend"
 
-    smoothness = st.slider(
-        slider_label,
-        min_value=1,
-        max_value=max_slider_val,
-        value=1
+    st.write("### Summary")
+    col1, col2, col3 = st.columns(3)
+
+    total_days = len(df_timeline)
+    avg_hours = df_timeline['hours_for_plot'].mean()
+
+    max_day_idx = df_timeline['hours_for_plot'].idxmax()
+    max_day_string = df_timeline.loc[max_day_idx, 'duration_of_session']
+
+    max_date_raw = df_timeline.loc[max_day_idx, 'date']
+    max_date_formatted = pd.to_datetime(max_date_raw).strftime('%b %d, %Y')
+
+    avg_mins = int(avg_hours * 60)
+    avg_string = f"{avg_mins // 60} hours & {avg_mins % 60} mins"
+
+    with col1:
+        st.metric("Days Tracked", f"{total_days} Days")
+    with col2:
+        st.metric("Daily Average", avg_string)
+    with col3:
+        st.metric("Most Obsessive Day", max_day_string, delta=max_date_formatted)
+
+    st.divider()
+
+    st.write("### Daily Listening History")
+
+    fig = px.line(
+        df_timeline,
+        x='date',
+        y='hours_for_plot',
+        hover_data=['duration_of_session']
     )
-    if smoothness == 1:
-        df_timeline['plot_value'] = df_timeline['hours_for_plot']
-        chart_title = f'Raw Data, Daily Listening Timeline ({time_filter})'
-    else:
-        df_timeline['plot_value'] = df_timeline['hours_for_plot'].rolling(window=smoothness, min_periods=1).mean()
-        chart_title = f'{smoothness}-Day Average, Daily Listening Timeline ({time_filter})'
-    fig1 = px.line(df_timeline,
-                   x='date',
-                   y='plot_value',
-                   title=chart_title,
-                   custom_data=['hours_for_plot'],
-                   color_discrete_sequence=['#1DB954'])
-    fig1.update_layout(yaxis_title="Hours Listened")
-    # adds vertical time grids
-    fig1.update_xaxes(
-        showgrid=True,
-        gridwidth=1,
-        gridcolor='rgba(255, 255, 255, 0.1)',  # creates a faint white line for every x months
+
+    fig.update_traces(
+        line_color='#1DB954',
+        hovertemplate="<b>Date:</b> %{x}<br><b>Listened:</b> %{customdata[0]}<extra></extra>"
     )
-    # it changes the data that it will be shown when the mouse is hovering on the graph
-    if smoothness == 1:
-        fig1.update_traces(
-            # got no idea how this works, used AI
-            hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
-                          "<b>Hours Listened:</b> %{customdata[0]:.2f}<br>"
-        )
-    else :
-        fig1.update_traces(
-            hovertemplate="<b>Date:</b> %{x|%B %d, %Y}<br>" +
-                          "<b>Actual Hours Listened:</b> %{customdata[0]:.2f}<br>" +
-                          "<b>Smoothed Trend:</b> %{y:.2f}<extra></extra>"
-        )
-    # adds the slider
-    fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
-    st.plotly_chart(fig1, width="stretch")
+
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Hours Listened",
+        plot_bgcolor='rgba(0, 0, 0, 0)',
+        paper_bgcolor='rgba(0, 0, 0, 0)',
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)')
+
+    st.plotly_chart(fig, width="stretch")
