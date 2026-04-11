@@ -5,3 +5,4 @@ Graphs/
 .env
 __pycache__/
 .idea/
+ASCII creator.py

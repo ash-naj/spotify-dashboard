@@ -11,7 +11,7 @@ db_url = os.getenv("AIVEN_DB_URL")
 engine = create_engine(db_url)
 
 # '__file__' returns the name of the script,
-# 'parent' returns the parent folder, does not add the /main.py at the end
+# 'parent' returns the parent folder, does not add the /load_data.py at the end
 # 'resolve()' gets the directory from the root of the hard drive
 current_dir = Path(__file__).resolve().parent
 # finding the Data folders directory
