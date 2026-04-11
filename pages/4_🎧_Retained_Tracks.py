@@ -1,6 +1,7 @@
 import streamlit as st
 from helpers import fetch_data, render_leaderboard
 
+st.set_page_config(layout="wide")
 st.write("### All-Time Top 10 Retained Tracks")
 # explanation for Retained Tracks
 with st.expander("🤓 How is this calculated? (The Math)"):

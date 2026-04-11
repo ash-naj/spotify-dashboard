@@ -114,27 +114,29 @@ FROM clean_listening_history
 WHERE true_skip = 0
 GROUP BY HOUR(timestamp)
 ORDER BY hour;
-SELECT* FROM v_hourly_plays;
 
 -- 9. Top Track by Hour
 CREATE OR REPLACE VIEW v_hourly_top_track AS
 (
 WITH HourlyCounts AS (SELECT HOUR(timestamp) as local_hour,
                              track,
+                             artist,
                              COUNT(*)        AS total_plays
                       FROM clean_listening_history
                       WHERE true_skip = 0
-                      GROUP BY HOUR(timestamp), track),
+                      GROUP BY HOUR(timestamp), track, artist),
      RankedTracks AS (SELECT local_hour,
                              track,
+                             artist,
                              total_plays,
                              ROW_NUMBER() OVER (PARTITION BY local_hour ORDER BY total_plays DESC) AS ranking
                       FROM HourlyCounts)
-SELECT local_hour, track AS top_track, total_plays
+SELECT local_hour, track AS top_track, artist, total_plays
 FROM RankedTracks
 WHERE ranking = 1
 ORDER BY local_hour
 );
+SELECT* FROM v_hourly_top_track;
 
 -- 10. Days with Longest Music Sessions
 CREATE OR REPLACE VIEW v_daily_session_duration AS
@@ -178,21 +180,24 @@ CREATE OR REPLACE VIEW v_monthly_top_track AS
 WITH monthlycount AS (SELECT YEAR(timestamp) AS year,
                              MONTH(timestamp) as month,
                              track,
+                             artist,
                              COUNT(*)        AS total_plays
                       FROM clean_listening_history
                       WHERE true_skip = 0
-                      GROUP BY year, month, track),
+                      GROUP BY year, month, track, artist),
      rankedtrack AS (SELECT year,
                               month,
                               track,
+                              artist,
                               total_plays,
                               ROW_NUMBER() OVER (PARTITION BY year, month ORDER BY total_plays DESC) AS ranking
                        FROM monthlycount)
-SELECT year, month, track AS top_track
+SELECT year, month, track AS top_track, artist
 FROM rankedtrack
 WHERE ranking = 1
 ORDER BY year, month
 );
+SELECT* FROM v_monthly_top_track;
 
 -- 13. Data for Listening timeline Graph
 CREATE OR REPLACE VIEW v_daily_listening_summary AS

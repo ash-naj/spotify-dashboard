@@ -1,6 +1,7 @@
 import streamlit as st
 from helpers import fetch_data, render_leaderboard
 
+st.set_page_config(layout="wide")
 st.write("### All-Time Top 5 Artists")
 df_artists = fetch_data("SELECT * FROM v_top_artists LIMIT 5;")
 

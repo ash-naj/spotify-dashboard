@@ -1,6 +1,7 @@
 import streamlit as st
 from helpers import fetch_data, get_time_filter_ui, render_hourly_profile
 
+st.set_page_config(layout="wide")
 time_filter, is_authorized = get_time_filter_ui("tab6")
 if is_authorized:
     st.divider()

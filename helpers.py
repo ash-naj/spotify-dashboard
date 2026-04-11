@@ -95,7 +95,7 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae
             subtitle = ""
 
         with cols[index]:
-            st.image(image_url, use_container_width=True)
+            st.image(image_url, width="stretch")
             st.markdown(
                 f"<p style='text-align: center; font-size: 16px;'><b>#{index + 1}</b><br>{primary_name}{subtitle}</p>",
                 unsafe_allow_html=True
@@ -126,7 +126,7 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae
                 )
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
     else:
         fig = px.bar(
@@ -141,7 +141,7 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae
             # adds a padding to text
             margin=dict(l=20, r=20, t=50, b=20)
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 # helper function for hourly charts
 def render_hourly_profile(df_hourly):
     """Draws a smooth, filled, Spotify-green spline chart for hourly listening habits."""
@@ -172,11 +172,13 @@ def render_hourly_profile(df_hourly):
     fig.update_xaxes(showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)')
     fig.update_yaxes(showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)')
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 # helper function for the dropdown and password UI
 def get_time_filter_ui(tab_key):
     """A UI component for selecting time windows and passwords."""
+    if 'is_authenticated' not in st.session_state:
+        st.session_state['is_authenticated'] = False
     col1, col2 = st.columns(2)
     with col1:
         st.write("### Filter Your History")
@@ -187,13 +189,56 @@ def get_time_filter_ui(tab_key):
         )
 
     if time_filter == "All Time (Restricted)":
+        if st.session_state['is_authenticated']:
+            return time_filter, True
         with col2:
             st.write("### Welcome Mr.Stark")
             secret_pass = st.text_input("Enter password", type="password", key=f"password_{tab_key}")
         if secret_pass == "AbBaba":
+            st.session_state['is_authenticated'] = True
             st.success("Welcome Mr.Stark! Fetching all the data for you sir...")
             return time_filter, True
-        else:
+        elif secret_pass != "":
             st.warning("⚠️ Jarvis won't allow you")
             return time_filter, False
+        else:
+            return time_filter, False
     return time_filter, True
+
+
+def render_image_carousel(df, label_col, primary_col, secondary_col, is_track=True):
+    """
+    Creates a horizontally scrolling timeline of images.
+    """
+    html_code = "<div style='display: flex; overflow-x: auto; gap: 20px; padding-bottom: 15px; margin-bottom: 20px; scrollbar-width: thin; scrollbar-color: #1DB954 transparent;'>"
+    with st.spinner('Loading images...'):
+        html_code = "<div style='display: flex; overflow-x: auto; gap: 20px; padding-bottom: 15px; margin-bottom: 20px; scrollbar-width: thin; scrollbar-color: #1DB954 transparent;'>"
+        for _, row in df.iterrows():
+            label = str(row[label_col])
+
+            # 1. The RAW names for the Spotify API
+            raw_primary = str(row[primary_col])
+            raw_secondary = str(row[secondary_col]) if secondary_col in df.columns else ""
+
+            # 2. The SAFE names for the HTML webpage
+            safe_primary = raw_primary.replace("'", "&#39;")
+            safe_secondary = raw_secondary.replace("'", "&#39;")
+
+            # 3. Fetch the image using the RAW names (Spotify needs the real apostrophe!)
+            if is_track:
+                image_url = get_track_image(raw_primary, raw_secondary)
+            else:
+                image_url = get_artist_image(raw_primary)
+
+            # 4. Build the HTML using the SAFE names
+            html_code += "<div style='flex: 0 0 140px; height: 230px; text-align: center; background-color: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; display: flex; flex-direction: column; align-items: center;'>"
+            html_code += f"<div style='width: 100%; background-color: #1DB954; color: black; border-radius: 5px; padding: 3px 0px; margin-bottom: 10px; font-weight: bold; font-size: 14px;'>{label}</div>"
+            html_code += f"<img src='{image_url}' style='width: 120px; height: 120px; min-width: 120px; min-height: 120px; max-width: 120px; max-height: 120px; object-fit: cover; border-radius: 5px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); display: block;'>"
+
+            # Notice we are injecting safe_primary and safe_secondary here!
+            html_code += f"<div style='width: 120px; margin-top: 10px;'><p style='margin: 0px; font-size: 14px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{safe_primary}'>{safe_primary}</p></div>"
+            html_code += f"<div style='width: 120px; margin-top: 2px;'><p style='margin: 0px; font-size: 12px; color: gray; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;' title='{safe_secondary}'>{safe_secondary}</p></div>"
+            html_code += "</div>"
+
+        html_code += "</div>"
+        st.markdown(html_code, unsafe_allow_html=True)

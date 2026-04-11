@@ -3,6 +3,7 @@ from helpers import fetch_data, get_time_filter_ui
 import pandas as pd
 import plotly.express as px
 
+st.set_page_config(layout="wide")
 # Creating two columns for our controls
 time_filter, is_authorized = get_time_filter_ui("tab1")
 if is_authorized:
@@ -72,4 +73,4 @@ if is_authorized:
         )
     # adds the slider
     fig1.update_layout(xaxis=dict(rangeslider=dict(visible=False)))
-    st.plotly_chart(fig1, use_container_width=True)
+    st.plotly_chart(fig1, width="stretch")
