@@ -77,59 +77,6 @@ def get_track_image(track_name, artist_name):
 
     return "https://via.placeholder.com/300?text=No+Cover"
 
-# visualization for 4__Total_Plays_per_Hour.csv
-def hourly_graph():
-    query = "SELECT * FROM clean_listening_history"
-    df = pd.read_sql(query, engine)
-
-    # creates 300 x points, between 0 and 23
-    x_smooth = np.linspace(df['hour'].min(), df['hour'].max(), 300)
-    # k is the degree of the polynomial of the new, smooth, graph
-    spline = make_interp_spline(df['hour'], df['played_count'], k=3)
-    # spline is an object that gets the x value and outputs the y value, using 'make_interp_spline'
-    y_smooth = spline(x_smooth)
-
-    # creates the canvas for the plot, because we have 24 x indexes, we use 12 and 6.
-    plt.figure(figsize=(12,6))
-    # marker indicates that we need dots on the graph, not a smooth continuous line
-    plt.plot(x_smooth, y_smooth, marker='o', color='#861891', linewidth=2.5)
-    # during the smoothing process, therefor numbers can be generated with negative values, 'np.maximum' gets rid of those
-    plt.fill_between(x_smooth, np.maximum(y_smooth, 0), color='#861891', alpha=0.2)
-    # this is the original graph, no smoothing
-    plt.plot(df['hour'], df['played_count'], marker='o', color='#1DB954', linestyle='none')
-    plt.title('Total Spotify Plays by Hour of the Day', fontsize=16, fontweight='bold')
-    plt.xlabel('Hour of the Day (0 = Midnight)', fontsize=12)
-    plt.ylabel('Total Songs Played', fontsize=12)
-    # matplotlib would automatically compress the x values, this avoids it
-    plt.xticks(range(0, 24))
-    # creates the grid in the background
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    # squishes the graph inward so every label fits inside the graph
-    plt.tight_layout()
-    plt.savefig('Graphs/4__Total_Plays_per_Hour.png', dpi=600)
-    plt.show()
-
-# visualization for 7__Days_with_Longest_Music_Sessions.csv
-def daily_session_duration():
-    query = """
-            SELECT DATE(timestamp)                   AS date, \
-                   SUM(ms_duration) / (1000 * 60 * 60) AS hours_for_plot
-            FROM clean_listening_history
-            GROUP BY DATE(timestamp)
-            ORDER BY date; \
-            """
-    df = pd.read_sql(query, engine)
-    df['date'] = pd.to_datetime(df['date'])
-    plt.figure(figsize=(14, 6))
-    plt.plot(df['date'], df['hours_for_plot'], color='#75FAED', linewidth=2)
-    plt.title('Daily Spotify Listening Timeline')
-    # gcf --> get current figure
-    # the second part enhances the way matplotlib shows dates on the plot
-    plt.gcf().autofmt_xdate()
-    plt.tight_layout()
-    plt.savefig('Graphs/7__Days_with_Longest_Music_Sessions.png', dpi=600)
-    plt.show()
-
 # helper function for creating a barchart and top 5
 def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae", is_track=True, chart_type="bar",
                        absolute_max=None, extra_cols=None):
@@ -204,7 +151,7 @@ def daily_session_duration_streamlit():
     st.title("My Spotify Wrapped Dashboard 🎧")
 
     # creating different tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists", "🎶 Top Tracks", "🎧 Retained Tracks"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🗓️ Daily Timeline", "🎸 Top Artists", "🎶 Top Tracks", "🎧 Retained Tracks", "🎙 Retained Artists"])
     # tab1 : listening history graph
     with tab1:
         # Creating two columns for our controls
@@ -323,8 +270,8 @@ def daily_session_duration_streamlit():
         # explanation for Retained Tracks
         with st.expander("🤓 How is this calculated? (The Math)"):
             st.write("""
-            I'm using LOG to normalize the play count, to avoid having artists with high play counts at the top of the list.
-            \nAlbeit, LOG has no natural ceiling, so to get a clean percentage we use the (Max total play(most played artist)) in the dataset as the divisor.
+            I'm using LOG to normalize the play count, to avoid having tracks with high play counts at the top of the list.
+            \nAlbeit, LOG has no natural ceiling, so to get a clean percentage we use the (Max total play(most played tracks)) in the dataset as the divisor.
             \nresult is a 0–100 score: higher = listened to often AND rarely skipped
             """)
 
@@ -338,6 +285,21 @@ def daily_session_duration_streamlit():
             color_theme="Teal",
             is_track=True,
             chart_type="table", # changes from bar chart to table
+            absolute_max=100,
+            extra_cols=['total_plays', 'total_skips']
+        )
+        st.divider()
+    with tab5:
+        st.write("### All-Time Top 10 Retained Artists")
+        df_retained = fetch_data("SELECT * FROM v_weighted_artist_skip_percentage LIMIT 10;")
+        render_leaderboard(
+            df=df_retained,
+            name_col='artist',
+            metric_col='weighted_skip_percentage',
+            chart_title="Retention Score",
+            color_theme="Teal",
+            is_track=False,
+            chart_type="table",
             absolute_max=100,
             extra_cols=['total_plays', 'total_skips']
         )
