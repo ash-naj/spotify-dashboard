@@ -6,7 +6,6 @@ def run_home_page():
     st.set_page_config(
         page_title="Spotify Wrapped Dashboard",
         page_icon="🎧",
-        layout="centered"
     )
 
     st.title("🎧 Spotify Wrapped")

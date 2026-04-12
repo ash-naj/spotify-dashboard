@@ -7,34 +7,40 @@ import os
 import ssl
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+import datetime
+from dateutil.relativedelta import relativedelta
 
 # connecting to AIVEN
 load_dotenv()
 db_url = os.getenv("AIVEN_DB_URL")
-# spotify API connection
-spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
-    client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-    client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
-))
 
-ssl_context = ssl.create_default_context()
-ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE
+@st.cache_resource
+def get_engine():
+    """Creates the database engine ONCE and remembers it forever."""
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    return create_engine(db_url, connect_args={"ssl": ssl_context})
 
-engine = create_engine(
-    db_url,
-    connect_args={
-        "ssl": ssl_context
-    }
-)
+@st.cache_resource
+def get_spotify():
+    """Creates the Spotify API connection ONCE and remembers it forever."""
+    return spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
+        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
+        ),
+        requests_timeout=10,  # Tells Spotipy to wait 10 seconds instead of 5
+        retries=3
+    )
 
 # getting the data only one time, not in every function
 @st.cache_data
 def fetch_data(query):
-    return pd.read_sql(query, engine)
+    return pd.read_sql(query, get_engine())
 
 @st.cache_data
 def get_artist_image(artist_name):
+    spotify = get_spotify()
     try:
         # Search Spotify for the artist
         result = spotify.search(q='artist:' + artist_name, type='artist', limit=1)
@@ -53,25 +59,24 @@ def get_artist_image(artist_name):
 
 @st.cache_data
 def get_track_image(track_name, artist_name):
+    spotify = get_spotify()
     try:
         # Search for BOTH the track and artist to ensure we get the right song
-        query = f"track:{track_name} artist:{artist_name}"
-        result = spotify.search(q=query, type='track', limit=1)
+        strict_query = f"track:{track_name} artist:{artist_name}"
+        results = spotify.search(q=strict_query, type='track', limit=5)
 
         # Dig into the package to find the album cover images
-        images = result['tracks']['items'][0]['album']['images']
+        tracks = results['tracks']['items']
 
-        if images:
-            # The exact same quality check we used for artists!
-            if len(images) > 1:
-                return images[1]['url']  # Grab the medium resolution
-            else:
-                return images[0]['url']
+        for track in tracks:
+            # Check if the name matches exactly (ignoring uppercase/lowercase)
+            if track['name'].lower() == track_name.lower():
+                return track['album']['images'][0]['url']
+        return tracks[0]['album']['images'][0]['url']
 
     except Exception as e:
-        pass
-
-    return "https://via.placeholder.com/300?text=No+Cover"
+        print(f"Spotify API Error for '{track_name}': {e}")
+        return "https://cdn-icons-png.freepik.com/512/26/26805.png"
 
 # helper function for tabs that need a leaderboard and data visulaization
 def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae", is_track=True, chart_type="bar",
@@ -176,35 +181,50 @@ def render_hourly_profile(df_hourly):
 
 # helper function for the dropdown and password UI
 def get_time_filter_ui(tab_key):
-    """A UI component for selecting time windows and passwords."""
-    if 'is_authenticated' not in st.session_state:
-        st.session_state['is_authenticated'] = False
+    """A UI component for creating a calendar time selection."""
+    # finding the last day of the Data and converting it to a python date object
+    query = """
+            SELECT MIN(DATE(timestamp)) as min_date, \
+                   MAX(DATE(timestamp)) as max_date
+            FROM clean_listening_history
+            WHERE true_skip = 0; \
+            """
+    df_dates = fetch_data(query)
+
+    # Extracting the boundaries for date
+    earliest_date = pd.to_datetime(df_dates.iloc[0]['min_date']).date()
+    latest_date = pd.to_datetime(df_dates.iloc[0]['max_date']).date()
+
+    thirty_days_ago = latest_date - datetime.timedelta(days=30)
+    default_start = max(thirty_days_ago, earliest_date)
+
+    st.write("### 📅 Date Explorer")
+
+    # 3. Put them side-by-side
     col1, col2 = st.columns(2)
+
     with col1:
-        st.write("### Filter Your History")
-        time_filter = st.selectbox(
-            "Select Time Window:",
-            ["Last Month", "Last 2 Months", "All Time (Restricted)"],
-            key=f"time_filter_{tab_key}" # creating a different key based off of the tab name
+        start_date = st.date_input(
+            "Start Date",
+            value=default_start,
+            min_value=earliest_date,
+            max_value=latest_date,
+            key=f"{tab_key}_start"
         )
 
-    if time_filter == "All Time (Restricted)":
-        if st.session_state['is_authenticated']:
-            return time_filter, True
-        with col2:
-            st.write("### Welcome Mr.Stark")
-            secret_pass = st.text_input("Enter password", type="password", key=f"password_{tab_key}")
-        if secret_pass == "AbBaba":
-            st.session_state['is_authenticated'] = True
-            st.success("Welcome Mr.Stark! Fetching all the data for you sir...")
-            return time_filter, True
-        elif secret_pass != "":
-            st.warning("⚠️ Jarvis won't allow you")
-            return time_filter, False
-        else:
-            return time_filter, False
-    return time_filter, True
+    with col2:
+        end_date = st.date_input(
+            "End Date",
+            value=latest_date,
+            min_value=earliest_date,
+            max_value=latest_date,
+            key=f"{tab_key}_end"
+        )
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
 
+    # 4. Return them together so the rest of your app doesn't have to change!
+    return start_date, end_date
 
 def render_image_carousel(df, label_col, primary_col, secondary_col, is_track=True):
     """

@@ -182,6 +182,7 @@ FROM rankedtrack
 WHERE ranking = 1
 ORDER BY year, month
 );
+SELECT* FROM v_monthly_top_track;
 
 -- 13. Data for Listening timeline Graph
 CREATE OR REPLACE VIEW v_daily_listening_summary AS
