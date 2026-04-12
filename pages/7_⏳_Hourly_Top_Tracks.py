@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from helpers import fetch_data, render_image_carousel, render_hourly_profile, get_time_filter_ui
+from helpers import fetch_data, render_image_carousel, get_time_filter_ui
 
 st.set_page_config(layout="wide")
 

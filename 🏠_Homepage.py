@@ -23,13 +23,13 @@ def run_home_page():
             "🎶 **Top Tracks**\n\nA Leaderboard for most listened to Tracks.")
         st.success("🎙️ **Retained Artists**\n\nIllustrates the Artists that were played the most and were not skipped.")
         st.warning("⏰ **Hourly Plays**\n\nShows how long Music was played throughout the 24 Hours of a Day. ")
-        st.error("⏳ **Hourly Top Tracks**\n\nRepresents which Track was most played throughout the Day")
+        st.error("⏳ **Hourly Top Tracks**\n\nRepresents which Track was most played throughout the Day.")
 
     with col2:
         st.info("🎸 **Top Artists**\n\nA Leaderboard for most listened to Artists.")
         st.success("🎧 **Retained Tracks**\n\nIllustrates the Songs that were played the most and were not skipped.")
-        st.warning("🗓️ **Daily Timeline**\n\nDepicts how your listening time fluctuates over weeks and months.")
-        st.error("")
+        st.warning("🗓️ **Daily Timeline**\n\nDepicts how listening sessions fluctuated throughout Time.")
+        st.error("🕰️ **Periodic Leaderboard**\n\nCreates a Custom Leaderboard for the Selected Time Period.")
 
     st.divider()
 

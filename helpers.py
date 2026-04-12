@@ -179,7 +179,7 @@ def render_hourly_profile(df_hourly):
 
     st.plotly_chart(fig, width="stretch")
 
-# helper function for the dropdown and password UI
+# helper function timeline selector
 def get_time_filter_ui(tab_key):
     """A UI component for creating a calendar time selection."""
     # finding the last day of the Data and converting it to a python date object
@@ -200,7 +200,13 @@ def get_time_filter_ui(tab_key):
 
     st.write("### 📅 Date Explorer")
 
-    # 3. Put them side-by-side
+    # all-time button that switches the timeline to all-time
+    use_all_time = st.toggle("✅ Select All-Time", value=False, key=f"{tab_key}_toggle")
+    if use_all_time:
+        st.success("Selected Entire listening history!")
+        return earliest_date, latest_date
+
+    # two columns for start and end of the date
     col1, col2 = st.columns(2)
 
     with col1:

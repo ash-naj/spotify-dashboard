@@ -3,7 +3,7 @@ from helpers import fetch_data, render_leaderboard
 
 st.set_page_config(layout="wide")
 st.write("### All-Time Top 10 Retained Artists")
-with st.expander("🤓 How is this calculated? (The Math)"):
+with st.expander("🤓 How is this calculated? (The Math) 🤓"):
     st.write("""
     I'm using LOG to normalize the play count, to avoid having tracks with high play counts at the top of the list.
     \nAlbeit, LOG has no natural ceiling, so to get a clean percentage we use the (Max total play(most played tracks)) in the dataset as the divisor.
