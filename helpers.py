@@ -39,80 +39,137 @@ def get_artist_image(artist_name):
     def normalize(name):
         return name.strip().lower()
 
-    # --- METHOD 1: Deezer direct artist search ---
+    def best_deezer_pic(artist_obj):
+        """Extract the highest-res non-default picture from a Deezer artist object."""
+        for size in ["picture_xl", "picture_big", "picture_medium"]:
+            pic = artist_obj.get(size)
+            if pic and "default" not in pic:
+                return pic
+        return None
+
+    # --- METHOD 1a: Deezer — track-disambiguated search (your original idea, fixed) ---
     try:
-        encoded = urllib.parse.quote(artist_name)
-        url = f"https://api.deezer.com/search/artist?q={encoded}&limit=10"
+        safe_artist = artist_name.replace("'", "''")
+        query = f"""
+            SELECT track 
+            FROM clean_listening_history 
+            WHERE artist = '{safe_artist}' AND true_skip = 0 
+            GROUP BY track 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 1;
+        """
+        df_top_track = fetch_data(query)
+
+        if not df_top_track.empty:
+            top_track = df_top_track.iloc[0]["track"]
+            clean_track = re.sub(r'\(.*?\)', '', top_track).replace('"', '').strip()
+            clean_artist = artist_name.replace('"', '').strip()
+
+            search_query = f'track:"{clean_track}" artist:"{clean_artist}"'
+            url = f"https://api.deezer.com/search?q={urllib.parse.quote(search_query)}&limit=10"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+
+            if data.get("data"):
+                for track in data["data"]:
+                    artist_obj = track.get("artist", {})
+                    if normalize(artist_obj.get("name", "")) == normalize(artist_name):
+                        # track result only has picture, not picture_xl — need a second call
+                        artist_id = artist_obj.get("id")
+                        if artist_id:
+                            detail = requests.get(f"https://api.deezer.com/artist/{artist_id}", timeout=10).json()
+                            pic = best_deezer_pic(detail)
+                            if pic:
+                                return pic
+
+    except Exception as e:
+        print(f"Deezer (track-based) Error for {artist_name}: {e}")
+
+    # --- METHOD 1b: Deezer — direct artist search fallback ---
+    try:
+        url = f"https://api.deezer.com/search/artist?q={urllib.parse.quote(artist_name)}&limit=10"
         response = requests.get(url, timeout=10)
         data = response.json()
 
         if data.get("data"):
-            # Try exact match first
+            # Exact match first
             for artist in data["data"]:
-                if normalize(artist["name"]) == normalize(artist_name):
-                    pic = artist.get("picture_xl") or artist.get("picture_big") or artist.get("picture_medium")
-                    if pic and "default" not in pic:
+                if normalize(artist.get("name", "")) == normalize(artist_name):
+                    pic = best_deezer_pic(artist)
+                    if pic:
                         return pic
-
-            # Fallback: return the top result's image if it's at least somewhat close
-            top = data["data"][0]
-            pic = top.get("picture_xl") or top.get("picture_big") or top.get("picture_medium")
-            if pic and "default" not in pic:
+            # Best-effort: top result
+            pic = best_deezer_pic(data["data"][0])
+            if pic:
                 return pic
 
     except Exception as e:
-        print(f"Deezer Error for {artist_name}: {e}")
+        print(f"Deezer (direct) Error for {artist_name}: {e}")
 
     # --- METHOD 2: TheAudioDB ---
     try:
-        encoded = urllib.parse.quote(artist_name)
-        url = f"https://www.theaudiodb.com/api/v1/json/2/search.php?s={encoded}"
+        url = f"https://www.theaudiodb.com/api/v1/json/2/search.php?s={urllib.parse.quote(artist_name)}"
         response = requests.get(url, timeout=10)
         data = response.json()
 
         if data.get("artists"):
-            for artist in data["artists"]:
-                if normalize(artist.get("strArtist", "")) == normalize(artist_name):
-                    # prefer Thumb > Banner > Logo in that order
-                    for field in ["strArtistThumb", "strArtistFanart", "strArtistBanner"]:
-                        img = artist.get(field)
-                        if img:
-                            return img + "/preview"  # /preview = lower-res than /small oddly
-            # No exact match — take the first result anyway
-            artist = data["artists"][0]
-            for field in ["strArtistThumb", "strArtistFanart", "strArtistBanner"]:
-                img = artist.get(field)
-                if img:
-                    return img + "/preview"
+            candidates = [a for a in data["artists"] if normalize(a.get("strArtist", "")) == normalize(artist_name)]
+            pool = candidates if candidates else data["artists"]  # fallback to first result if no exact match
+
+            for artist in pool:
+                for field in ["strArtistThumb", "strArtistFanart", "strArtistBanner"]:
+                    img = artist.get(field)
+                    if img:
+                        return img + "/preview"
 
     except Exception as e:
         print(f"TheAudioDB Error for {artist_name}: {e}")
 
-    # --- METHOD 3: MusicBrainz + fanart.tv (no key needed for basic use) ---
+    # --- METHOD 3: MusicBrainz + fanart.tv ---
     try:
-        # Step 1: get MusicBrainz ID
         mb_url = f"https://musicbrainz.org/ws/2/artist/?query=artist:{urllib.parse.quote(artist_name)}&fmt=json&limit=3"
         headers = {"User-Agent": "SpotifyAnalytics/1.0 (your@email.com)"}
-        mb_resp = requests.get(mb_url, headers=headers, timeout=10)
-        mb_data = mb_resp.json()
+        mb_data = requests.get(mb_url, headers=headers, timeout=10).json()
 
         if mb_data.get("artists"):
             for mb_artist in mb_data["artists"]:
                 if normalize(mb_artist.get("name", "")) == normalize(artist_name):
                     mbid = mb_artist["id"]
-
-                    # Step 2: try fanart.tv with that MBID (returns images without auth)
                     ft_url = f"https://webservice.fanart.tv/v3/music/{mbid}?api_key=52a63535ea8e4fd0b3c75e7d9a0c0b69"
-                    ft_resp = requests.get(ft_url, timeout=10)
-                    ft_data = ft_resp.json()
+                    ft_data = requests.get(ft_url, timeout=10).json()
 
                     for key in ["artistthumb", "artistbackground", "hdmusiclogo"]:
                         images = ft_data.get(key)
-                        if images and len(images) > 0:
+                        if images:
                             return images[0]["url"]
 
     except Exception as e:
         print(f"MusicBrainz/fanart.tv Error for {artist_name}: {e}")
+
+    # --- METHOD 4: Genius ---
+    try:
+        genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
+
+        if genius_token:
+            headers = {"Authorization": f"Bearer {genius_token}"}
+            response = requests.get(
+                "https://api.genius.com/search",
+                headers=headers,
+                params={"q": artist_name},
+                timeout=10
+            )
+            data = response.json()
+
+            if data.get("response", {}).get("hits"):
+                for hit in data["response"]["hits"]:
+                    primary_artist = hit["result"]["primary_artist"]
+                    if normalize(primary_artist["name"]) == normalize(artist_name):
+                        img = primary_artist.get("image_url", "")
+                        if img and "default_avatar" not in img:
+                            return img
+
+    except Exception as e:
+        print(f"Genius Error for {artist_name}: {e}")
 
     # --- FINAL FALLBACK ---
     return "https://placehold.co/300x300/1a1a2e/ffffff?text=" + urllib.parse.quote(artist_name[:2].upper())
