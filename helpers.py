@@ -29,20 +29,12 @@ def fetch_data(query):
     """Getting the Data from Database and converting to pandas DataFrame."""
     return pd.read_sql(query, get_engine())
 
-
 @st.cache_data
 def get_artist_image(artist_name):
-    # ==========================================
-    # ANTI-BOT PAUSE
-    # ==========================================
-    # Prevents free APIs from blocking you when the cache is empty
-    time.sleep(0.2)
-
-    # ==========================================
-    # STEP 1: FIND THEIR TOP SONG IN YOUR DB
-    # ==========================================
+    # find the tops song of the artist to match it exactly to the singer
     df_top_track = pd.DataFrame()
     try:
+        # to avoid SQL errors we replace ' with ''
         safe_artist = artist_name.replace("'", "''")
         query = f"""
             SELECT track 
@@ -56,9 +48,7 @@ def get_artist_image(artist_name):
     except Exception as e:
         print(f"SQL Error for {artist_name}: {e}")
 
-    # ==========================================
-    # STEP 2: DEEZER CONTEXT SEARCH (Top Track)
-    # ==========================================
+    # searching deezer for the artist image
     try:
         if not df_top_track.empty:
             top_track = df_top_track.iloc[0]['track']
@@ -75,34 +65,15 @@ def get_artist_image(artist_name):
             data = response.json()
 
             if data.get('data') and len(data['data']) > 0:
+                # picture_medium gives us the low resolution image.
                 return data['data'][0]['artist']['picture_medium']
 
     except Exception as e:
         print(f"Deezer Context Error for {artist_name}: {e}")
 
-    # ==========================================
-    # STEP 2.5: BASIC DEEZER SEARCH (The Missing Link!)
-    # ==========================================
+    # method 2, if deezer fails, use audiodb as the image database
     try:
-        # If the specific song fails, just search the artist name!
-        encoded_artist = urllib.parse.quote(artist_name)
-        url = f"https://api.deezer.com/search/artist?q={encoded_artist}"
-
-        response = requests.get(url, timeout=10)
-        data = response.json()
-
-        if data.get('data') and len(data['data']) > 0:
-            for artist in data['data']:
-                if artist['name'].lower() == artist_name.lower():
-                    return artist['picture_medium']
-
-    except Exception as e:
-        print(f"Deezer Basic Error for {artist_name}: {e}")
-
-    # ==========================================
-    # STEP 3: TheAudioDB FALLBACK
-    # ==========================================
-    try:
+        # TheAudioDB uses a public, free test key: "2"
         encoded_fallback_artist = urllib.parse.quote(artist_name)
         url = f"https://www.theaudiodb.com/api/v1/json/2/search.php?s={encoded_fallback_artist}"
 
@@ -111,18 +82,19 @@ def get_artist_image(artist_name):
 
         if data.get('artists') and data['artists'] is not None:
             for artist in data['artists']:
+                # TheAudioDB stores the name in 'strArtist'
                 if artist['strArtist'].lower() == artist_name.lower():
                     image_url = artist.get('strArtistThumb')
-                    if image_url:
-                        return image_url + "/small"
 
+                    if image_url:
+                        # the /small makes the image low resolution
+                        return image_url + "/small"
     except Exception as e:
         print(f"TheAudioDB Error for {artist_name}: {e}")
 
-    # ==========================================
-    # STEP 4: GENIUS API FALLBACK
-    # ==========================================
+    # method 3, using Genius API
     try:
+        # getting the token from env
         genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
 
         if genius_token:
@@ -140,17 +112,16 @@ def get_artist_image(artist_name):
                     if primary_artist["name"].lower() == artist_name.lower():
                         image_url = primary_artist["image_url"]
 
-                        # Filter out Genius default placeholders!
+                        # Reject any URL that contains the word 'default'
                         if "default_avatar" not in image_url:
                             return image_url
 
     except Exception as e:
         print(f"Genius Error for {artist_name}: {e}")
 
-    # ==========================================
-    # STEP 5: DEFAULT PLACEHOLDER
-    # ==========================================
+    # last fallback, just a gray image
     return "https://img.freepik.com/premium-vector/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-vector-illustration_561158-3485.jpg?w=360"
+
 
 @st.cache_data
 def get_track_image(track_name, artist_name):
