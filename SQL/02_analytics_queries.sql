@@ -39,6 +39,7 @@ WHERE true_skip = 0
 GROUP BY artist
 ORDER BY total_hours DESC
 );
+SELECT* FROM v_top_artists;
 
 -- 4. Skip Ratio Track - shadowed by weighted version
 CREATE OR REPLACE VIEW v_skip_ratio_track AS

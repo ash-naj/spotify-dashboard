@@ -5,83 +5,213 @@ from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import os
 import ssl
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
 import datetime
-from dateutil.relativedelta import relativedelta
+import urllib.parse
+import requests
+import re
+import time
 
 # connecting to AIVEN
 load_dotenv()
 db_url = os.getenv("AIVEN_DB_URL")
 
+# getting the data only one time, not in every function
 @st.cache_resource
 def get_engine():
-    """Creates the database engine ONCE and remembers it forever."""
+    """Creates the database engine."""
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
     return create_engine(db_url, connect_args={"ssl": ssl_context})
 
-@st.cache_resource
-def get_spotify():
-    """Creates the Spotify API connection ONCE and remembers it forever."""
-    return spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials(
-        client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-        client_secret=os.getenv("SPOTIFY_CLIENT_SECRET")
-        ),
-        requests_timeout=10,  # Tells Spotipy to wait 10 seconds instead of 5
-        retries=3
-    )
-
-# getting the data only one time, not in every function
 @st.cache_data
 def fetch_data(query):
+    """Getting the Data from Database and converting to pandas DataFrame."""
     return pd.read_sql(query, get_engine())
+
 
 @st.cache_data
 def get_artist_image(artist_name):
-    spotify = get_spotify()
+    # ==========================================
+    # ANTI-BOT PAUSE
+    # ==========================================
+    # Prevents free APIs from blocking you when the cache is empty
+    time.sleep(0.2)
+
+    # ==========================================
+    # STEP 1: FIND THEIR TOP SONG IN YOUR DB
+    # ==========================================
+    df_top_track = pd.DataFrame()
     try:
-        # Search Spotify for the artist
-        result = spotify.search(q='artist:' + artist_name, type='artist', limit=1)
-        # Dig into the data package to find the images
-        images = result['artists']['items'][0]['images']
-        if images:
-            # If Spotify gives us at least 2 image choices, grab the Medium one [1]
-            if len(images) > 1:
-                return images[1]['url']
-            # If they only have 1 image on file, just use whatever they gave us
-            else:
-                return images[0]['url']
+        safe_artist = artist_name.replace("'", "''")
+        query = f"""
+            SELECT track 
+            FROM clean_listening_history 
+            WHERE artist = '{safe_artist}' AND true_skip = 0 
+            GROUP BY track 
+            ORDER BY COUNT(*) DESC 
+            LIMIT 1;
+        """
+        df_top_track = fetch_data(query)
     except Exception as e:
-        pass
-    return "https://img.freepik.com/premium-vector/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-vector-illustration_561158-3485.jpg?w=360" # A default profile icon if there's no image
+        print(f"SQL Error for {artist_name}: {e}")
+
+    # ==========================================
+    # STEP 2: DEEZER CONTEXT SEARCH (Top Track)
+    # ==========================================
+    try:
+        if not df_top_track.empty:
+            top_track = df_top_track.iloc[0]['track']
+
+            import re
+            clean_track = re.sub(r'\(.*?\)', '', top_track).replace('"', '').strip()
+            clean_artist = artist_name.replace('"', '').strip()
+
+            search_query = f'track:"{clean_track}" artist:"{clean_artist}"'
+            encoded_query = urllib.parse.quote(search_query)
+            url = f"https://api.deezer.com/search?q={encoded_query}"
+
+            response = requests.get(url, timeout=10)
+            data = response.json()
+
+            if data.get('data') and len(data['data']) > 0:
+                return data['data'][0]['artist']['picture_medium']
+
+    except Exception as e:
+        print(f"Deezer Context Error for {artist_name}: {e}")
+
+    # ==========================================
+    # STEP 2.5: BASIC DEEZER SEARCH (The Missing Link!)
+    # ==========================================
+    try:
+        # If the specific song fails, just search the artist name!
+        encoded_artist = urllib.parse.quote(artist_name)
+        url = f"https://api.deezer.com/search/artist?q={encoded_artist}"
+
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        if data.get('data') and len(data['data']) > 0:
+            for artist in data['data']:
+                if artist['name'].lower() == artist_name.lower():
+                    return artist['picture_medium']
+
+    except Exception as e:
+        print(f"Deezer Basic Error for {artist_name}: {e}")
+
+    # ==========================================
+    # STEP 3: TheAudioDB FALLBACK
+    # ==========================================
+    try:
+        encoded_fallback_artist = urllib.parse.quote(artist_name)
+        url = f"https://www.theaudiodb.com/api/v1/json/2/search.php?s={encoded_fallback_artist}"
+
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        if data.get('artists') and data['artists'] is not None:
+            for artist in data['artists']:
+                if artist['strArtist'].lower() == artist_name.lower():
+                    image_url = artist.get('strArtistThumb')
+                    if image_url:
+                        return image_url + "/small"
+
+    except Exception as e:
+        print(f"TheAudioDB Error for {artist_name}: {e}")
+
+    # ==========================================
+    # STEP 4: GENIUS API FALLBACK
+    # ==========================================
+    try:
+        genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
+
+        if genius_token:
+            headers = {"Authorization": f"Bearer {genius_token}"}
+            search_url = "https://api.genius.com/search"
+            params = {"q": artist_name}
+
+            response = requests.get(search_url, headers=headers, params=params, timeout=10)
+            data = response.json()
+
+            if data.get("response") and data["response"].get("hits"):
+                for hit in data["response"]["hits"]:
+                    primary_artist = hit["result"]["primary_artist"]
+
+                    if primary_artist["name"].lower() == artist_name.lower():
+                        image_url = primary_artist["image_url"]
+
+                        # Filter out Genius default placeholders!
+                        if "default_avatar" not in image_url:
+                            return image_url
+
+    except Exception as e:
+        print(f"Genius Error for {artist_name}: {e}")
+
+    # ==========================================
+    # STEP 5: DEFAULT PLACEHOLDER
+    # ==========================================
+    return "https://img.freepik.com/premium-vector/default-avatar-profile-icon-social-media-user-image-gray-avatar-icon-blank-profile-silhouette-vector-illustration_561158-3485.jpg?w=360"
 
 @st.cache_data
 def get_track_image(track_name, artist_name):
-    spotify = get_spotify()
+    # Clean the text to improve search accuracy
+    import re
+    clean_track = re.sub(r'\(.*?\)', '', track_name).replace('"', '').strip()
+    clean_artist = artist_name.replace('"', '').strip()
+
+    # method 1, searching with deezer
     try:
-        # Search for BOTH the track and artist to ensure we get the right song
-        strict_query = f"track:{track_name} artist:{artist_name}"
-        results = spotify.search(q=strict_query, type='track', limit=5)
+        query = f'track:"{clean_track}" artist:"{clean_artist}"'
+        encoded_query = urllib.parse.quote(query)
+        url = f"https://api.deezer.com/search?q={encoded_query}"
 
-        # Dig into the package to find the album cover images
-        tracks = results['tracks']['items']
+        response = requests.get(url, timeout=10)
+        data = response.json()
 
-        for track in tracks:
-            # Check if the name matches exactly (ignoring uppercase/lowercase)
-            if track['name'].lower() == track_name.lower():
-                return track['album']['images'][0]['url']
-        return tracks[0]['album']['images'][0]['url']
+        if data.get('data') and len(data['data']) > 0:
+            tracks = data['data']
+
+            for track in tracks:
+                if track['title'].lower() == clean_track.lower():
+                    # cover_medium gets the low resolution image
+                    return track['album']['cover_medium']
 
     except Exception as e:
-        print(f"Spotify API Error for '{track_name}': {e}")
-        return "https://cdn-icons-png.freepik.com/512/26/26805.png"
+        print(f"Deezer Track Error for '{track_name}': {e}")
 
-# helper function for tabs that need a leaderboard and data visulaization
+    # method 2, using itunes
+    try:
+        search_term = f"{clean_artist} {clean_track}"
+        url = "https://itunes.apple.com/search"
+        params = {
+            "term": search_term,
+            "entity": "song",
+            "limit": 5
+        }
+
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+
+        if data.get('resultCount', 0) > 0:
+            tracks = data['results']
+
+            for track in tracks:
+                if track.get('trackName', '').lower() == clean_track.lower():
+                    small_url = track['artworkUrl100']
+                    return small_url.replace('100x100bb.jpg', '600x600bb.jpg')
+
+            small_url = tracks[0]['artworkUrl100']
+            return small_url.replace('100x100bb.jpg', '600x600bb.jpg')
+
+    except Exception as e:
+        print(f"iTunes Track Error for '{track_name}': {e}")
+
+    # Return the default music note if the track isn't found
+    return "https://cdn-icons-png.freepik.com/512/26/26805.png"
+
 def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae", is_track=True, chart_type="bar",
                        absolute_max=None, extra_cols=None):
-    """A universal UI component to draw a Top 5 image and data visualization."""
+    """A UI component to draw a Top 5 image leaderboard and also a data visualization."""
 
     # create the place for top 5 images
     top_5_df = df.head(5)
@@ -93,11 +223,12 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae
             primary_name = row['track']
             artist_name = row['artist']
             image_url = get_track_image(primary_name, artist_name)
+            # adds artist's name on the bottom of the image
             subtitle = f"<br><span style='font-size: 12px; color: gray;'>{artist_name}</span>"
         else:
             primary_name = row['artist']
             image_url = get_artist_image(primary_name)
-            subtitle = ""
+            subtitle = f"<br><span style='font-size: 12px; color: gray;'>{round(row[metric_col])} plays</span>"
 
         with cols[index]:
             st.image(image_url, width="stretch")
@@ -119,10 +250,11 @@ def render_leaderboard(df, name_col, metric_col, chart_title, color_theme="algae
             display_columns.extend(extra_cols)
         display_columns.append(metric_col)
 
+        dynamic_label = "Track Name" if is_track else "Artist Name"
         st.dataframe(
             df[display_columns],
             column_config={
-                name_col: st.column_config.TextColumn("Track Name"),
+                name_col: st.column_config.TextColumn(dynamic_label),
                 metric_col: st.column_config.ProgressColumn(
                     chart_title,
                     format="%.2f",
