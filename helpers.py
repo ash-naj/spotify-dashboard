@@ -30,24 +30,89 @@ def fetch_data(query):
     return pd.read_sql(query, get_engine())
 
 @st.cache_data
-def get_artist_image(artist_name):
-    import re
-    import urllib.parse
-    import requests
-    import os
+def get_artist_image(artist_name, debug=False):
+
+    def log(msg):
+        # Define exact phrases that mean a platform failed or came up empty
+        failure_keywords = [
+            "FAILED",
+            "Error",
+            "exhausted",
+            "falling through",
+            "no top track found",
+            "returned no artists"
+        ]
+
+        is_failure = any(word in msg for word in failure_keywords)
+
+        # ONLY print or warn if it is an actual failure
+        if is_failure:
+            if debug:
+                st.warning(msg)
+            else:
+                print(msg)
 
     def normalize(name):
         return name.strip().lower()
 
     def best_deezer_pic(artist_obj):
-        """Extract the highest-res non-default picture from a Deezer artist object."""
         for size in ["picture_xl", "picture_big", "picture_medium"]:
             pic = artist_obj.get(size)
-            if pic and "default" not in pic:
+            if pic and not is_default_image(pic):
                 return pic
         return None
 
-    # --- METHOD 1a: Deezer — track-disambiguated search (your original idea, fixed) ---
+    # --- METHOD 1: Genius ---
+
+    # creating a function that checks whether it's the default image or not
+    REJECTED_IMAGE_PATTERNS = [
+        "default_avatar",
+        "assets.genius.com/images/default",
+        "default_cover_image",
+        "placeholder",
+        "no_photo",
+        "noimage",
+        "missing_",
+        "generic_",
+        "placehold.co",
+    ]
+
+    def is_default_image(url: str) -> bool:
+        if not url:
+            return True
+        url_lower = url.lower()
+        return any(pattern in url_lower for pattern in REJECTED_IMAGE_PATTERNS)
+
+    try:
+        genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
+        log(f"[1] Genius token present: {bool(genius_token)}")
+
+        if genius_token:
+            headers = {"Authorization": f"Bearer {genius_token}"}
+            response = requests.get(
+                "https://api.genius.com/search",
+                headers=headers,
+                params={"q": artist_name},
+                timeout=10
+            )
+            data = response.json()
+            hits = data.get("response", {}).get("hits", [])
+            log(f"[1] Genius hits: {[h['result']['primary_artist']['name'] for h in hits]}")
+
+            for hit in hits:
+                primary_artist = hit["result"]["primary_artist"]
+                if normalize(primary_artist["name"]) == normalize(artist_name):
+                    img = primary_artist.get("image_url", "")
+                    log(f"[1] Genius image: {img}")
+                    if not is_default_image(img):
+                        return img
+                    else:
+                        log(f"[1] Genius returned a default image {artist_name}, falling through")
+
+    except Exception as e:
+        log(f"[1] Genius FAILED: {e}")
+
+    # --- METHOD 2a: Deezer track-disambiguated ---
     try:
         safe_artist = artist_name.replace("'", "''")
         query = f"""
@@ -59,6 +124,7 @@ def get_artist_image(artist_name):
             LIMIT 1;
         """
         df_top_track = fetch_data(query)
+        log(f"[2a] top track query returned {len(df_top_track)} rows for '{artist_name}'")
 
         if not df_top_track.empty:
             top_track = df_top_track.iloc[0]["track"]
@@ -69,67 +135,76 @@ def get_artist_image(artist_name):
             url = f"https://api.deezer.com/search?q={urllib.parse.quote(search_query)}&limit=10"
             response = requests.get(url, timeout=10)
             data = response.json()
+            log(f"[2a] Deezer returned {len(data.get('data', []))} results for query: {search_query}")
 
             if data.get("data"):
                 for track in data["data"]:
                     artist_obj = track.get("artist", {})
+                    log(f"[2a] checking Deezer artist: '{artist_obj.get('name')}'")
                     if normalize(artist_obj.get("name", "")) == normalize(artist_name):
-                        # track result only has picture, not picture_xl — need a second call
                         artist_id = artist_obj.get("id")
                         if artist_id:
                             detail = requests.get(f"https://api.deezer.com/artist/{artist_id}", timeout=10).json()
                             pic = best_deezer_pic(detail)
+                            log(f"[2a] Deezer detail pic: {pic}")
                             if pic:
                                 return pic
+        else:
+            log(f"[2a] no top track found, skipping track-based Deezer search")
 
     except Exception as e:
-        print(f"Deezer (track-based) Error for {artist_name}: {e}")
+        log(f"[2a] Deezer track-based FAILED: {e}")
 
-    # --- METHOD 1b: Deezer — direct artist search fallback ---
+    # --- METHOD 2b: Deezer direct artist search ---
     try:
         url = f"https://api.deezer.com/search/artist?q={urllib.parse.quote(artist_name)}&limit=10"
         response = requests.get(url, timeout=10)
         data = response.json()
+        log(f"[2b] Deezer direct returned {len(data.get('data', []))} artists")
 
         if data.get("data"):
-            # Exact match first
             for artist in data["data"]:
+                log(f"[2b] checking: '{artist.get('name')}'")
                 if normalize(artist.get("name", "")) == normalize(artist_name):
                     pic = best_deezer_pic(artist)
+                    log(f"[2b] exact match pic: {pic}")
                     if pic:
                         return pic
-            # Best-effort: top result
             pic = best_deezer_pic(data["data"][0])
+            log(f"[2b] top result fallback pic: {pic}")
             if pic:
                 return pic
 
     except Exception as e:
-        print(f"Deezer (direct) Error for {artist_name}: {e}")
+        log(f"[2b] Deezer direct FAILED: {e}")
 
-    # --- METHOD 2: TheAudioDB ---
+    # --- METHOD 3: TheAudioDB ---
     try:
         url = f"https://www.theaudiodb.com/api/v1/json/2/search.php?s={urllib.parse.quote(artist_name)}"
         response = requests.get(url, timeout=10)
         data = response.json()
+        log(f"[3] TheAudioDB artists found: {[a.get('strArtist') for a in (data.get('artists') or [])]}")
 
         if data.get("artists"):
             candidates = [a for a in data["artists"] if normalize(a.get("strArtist", "")) == normalize(artist_name)]
-            pool = candidates if candidates else data["artists"]  # fallback to first result if no exact match
-
+            pool = candidates if candidates else data["artists"]
             for artist in pool:
                 for field in ["strArtistThumb", "strArtistFanart", "strArtistBanner"]:
                     img = artist.get(field)
                     if img:
                         return img + "/preview"
+        else:
+            log(f"[3] TheAudioDB returned no artists")
 
     except Exception as e:
-        print(f"TheAudioDB Error for {artist_name}: {e}")
+        log(f"[3] TheAudioDB FAILED: {e}")
 
-    # --- METHOD 3: MusicBrainz + fanart.tv ---
+    # --- METHOD 4: MusicBrainz + fanart.tv ---
     try:
         mb_url = f"https://musicbrainz.org/ws/2/artist/?query=artist:{urllib.parse.quote(artist_name)}&fmt=json&limit=3"
         headers = {"User-Agent": "SpotifyAnalytics/1.0 (your@email.com)"}
         mb_data = requests.get(mb_url, headers=headers, timeout=10).json()
+        log(f"[4] MusicBrainz artists: {[a.get('name') for a in mb_data.get('artists', [])]}")
 
         if mb_data.get("artists"):
             for mb_artist in mb_data["artists"]:
@@ -137,41 +212,16 @@ def get_artist_image(artist_name):
                     mbid = mb_artist["id"]
                     ft_url = f"https://webservice.fanart.tv/v3/music/{mbid}?api_key=52a63535ea8e4fd0b3c75e7d9a0c0b69"
                     ft_data = requests.get(ft_url, timeout=10).json()
-
+                    log(f"[4] fanart.tv keys: {list(ft_data.keys())}")
                     for key in ["artistthumb", "artistbackground", "hdmusiclogo"]:
                         images = ft_data.get(key)
                         if images:
                             return images[0]["url"]
 
     except Exception as e:
-        print(f"MusicBrainz/fanart.tv Error for {artist_name}: {e}")
-
-    # --- METHOD 4: Genius ---
-    try:
-        genius_token = os.getenv("GENIUS_ACCESS_TOKEN")
-
-        if genius_token:
-            headers = {"Authorization": f"Bearer {genius_token}"}
-            response = requests.get(
-                "https://api.genius.com/search",
-                headers=headers,
-                params={"q": artist_name},
-                timeout=10
-            )
-            data = response.json()
-
-            if data.get("response", {}).get("hits"):
-                for hit in data["response"]["hits"]:
-                    primary_artist = hit["result"]["primary_artist"]
-                    if normalize(primary_artist["name"]) == normalize(artist_name):
-                        img = primary_artist.get("image_url", "")
-                        if img and "default_avatar" not in img:
-                            return img
-
-    except Exception as e:
-        print(f"Genius Error for {artist_name}: {e}")
-
-    # --- FINAL FALLBACK ---
+        log(f"[4] MusicBrainz/fanart.tv FAILED: {e}")
+    # last fallback, just a gray image
+    log(f"ALL methods exhausted for '{artist_name}', using fallback")
     return "https://placehold.co/300x300/1a1a2e/ffffff?text=" + urllib.parse.quote(artist_name[:2].upper())
 
 @st.cache_data
